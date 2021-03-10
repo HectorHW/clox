@@ -29,6 +29,7 @@ void freeVM();
 InterpretResult interpret(Chunk* chunk);
 
 void push(Value value);
+void uncheckedPush(Value value);
 Value pop();
 
 #endif //CLOX_VM_H

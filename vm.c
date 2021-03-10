@@ -21,9 +21,6 @@ static void freeStack(){
     free(vm.stack);
 }
 
-static void resetStack(){
-    vm.stackTop = vm.stack;
-}
 
 void initVM(){
 initStack();
@@ -41,9 +38,8 @@ static InterpretResult run(){
 
 #define BINARY_OP(op) \
     do {\
-        double b = pop(); \
-        double a = pop(); \
-        push(a op b); \
+        *(vm.stackTop-2) = *(vm.stackTop-2) op *(vm.stackTop-1); \
+        vm.stackTop--;\
     }while(false) \
 
 
@@ -118,6 +114,11 @@ void push(Value value) {
         vm.stack_size = GROW_CAPACITY(vm.stack_size);
     }
 
+    *vm.stackTop = value;
+    vm.stackTop++;
+}
+
+void uncheckedPush(Value value){
     *vm.stackTop = value;
     vm.stackTop++;
 }
