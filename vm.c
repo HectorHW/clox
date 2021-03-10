@@ -6,19 +6,31 @@
 #include "common.h"
 #include "vm.h"
 #include "debug.h"
+#include "memory.h"
+#include "stdlib.h"
 
 VM vm;
+
+static void initStack(){
+    vm.stack = GROW_ARRAY(Value, vm.stack, 0, 8);
+    vm.stack_size = 8;
+    vm.stackTop = vm.stack;
+}
+
+static void freeStack(){
+    free(vm.stack);
+}
 
 static void resetStack(){
     vm.stackTop = vm.stack;
 }
 
 void initVM(){
-resetStack();
+initStack();
 }
 
 void freeVM(){
-
+    freeStack();
 }
 
 static InterpretResult run(){
@@ -69,7 +81,8 @@ static InterpretResult run(){
             }
 
             case OP_NEGATE: {
-                push(-pop()); break;
+                *(vm.stackTop-1) *= -1;  //inplace
+                break;
             }
 
             case OP_ADD: BINARY_OP(+); break;
@@ -97,6 +110,14 @@ InterpretResult interpret(Chunk *chunk) {
 }
 
 void push(Value value) {
+
+    if(vm.stackTop==vm.stack_size+vm.stack){
+        //grow stack, repoint
+        vm.stack = GROW_ARRAY(Value, vm.stack, vm.stack_size, GROW_CAPACITY(vm.stack_size));
+        vm.stackTop = vm.stack_size + vm.stack;
+        vm.stack_size = GROW_CAPACITY(vm.stack_size);
+    }
+
     *vm.stackTop = value;
     vm.stackTop++;
 }

@@ -13,8 +13,9 @@
 typedef struct {
     Chunk* chunk;
     uint8_t* ip; //instruction pointer, points to instruction that will be executed next
-    Value stack[STACK_MAX];
+    Value* stack;
     Value* stackTop;
+    int stack_size;
 } VM;
 
 typedef enum {
