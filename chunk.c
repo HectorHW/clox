@@ -77,7 +77,7 @@ void writeConstant(Chunk *chunk, Value value, int line) {
 
     int constant_index = addConstant(chunk, value);
 
-    if(constant_index<=0xff){
+    if(constant_index<=UINT8_MAX){
         writeChunk(chunk, OP_CONSTANT, line);
         writeChunk(chunk, (uint8_t)constant_index, line);
     }else{

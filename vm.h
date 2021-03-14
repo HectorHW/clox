@@ -8,7 +8,6 @@
 #include "chunk.h"
 #include "value.h"
 
-#define STACK_MAX 256
 
 typedef struct {
     Chunk* chunk;
@@ -19,7 +18,7 @@ typedef struct {
 } VM;
 
 typedef enum {
-    INTERPRET_OK,
+    INTERPRET_OK=0,
     INTERPRET_COMPILE_ERROR,
     INTERPRET_RUNTIME_ERROR
 } InterpretResult;
