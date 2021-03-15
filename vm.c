@@ -3,6 +3,7 @@
 //
 
 #include <stdio.h>
+#include <stdarg.h>
 #include "common.h"
 #include "vm.h"
 #include "compiler.h"
@@ -31,15 +32,42 @@ void freeVM(){
     freeStack();
 }
 
+static Value peek(int distance){
+    return vm.stackTop[-1-distance];
+}
+
+static bool isFalsey(Value value){
+    return IS_NIL(value) || (IS_BOOL(value) && !AS_BOOL(value));
+}
+
+static void runtimeError(const char* format, ...){
+    va_list args;
+    va_start(args, format);
+    vfprintf(stderr, format, args);
+    va_end(args);
+    fputs("\n", stderr);
+
+    size_t intsruction = vm.ip - vm.chunk->code - 1;
+    int line = getLine(&vm.chunk->lines, intsruction);
+    fprintf(stderr, "[line %d] is script\n", line);
+    freeStack();
+
+}
+
 static InterpretResult run(){
 #define READ_BYTE() (*vm.ip++)
 #define READ_CONSTANT() (vm.chunk->constants.values[READ_BYTE()])
 #define READ_CONSTANT_LONG(constant_variable) \
 (constant_variable = vm.chunk->constants.values[*vm.ip + (*(vm.ip+1)<<8) + (*(vm.ip+2)<<16)], vm.ip+=3)
 
-#define BINARY_OP(op) \
-    do {\
-        *(vm.stackTop-2) = *(vm.stackTop-2) op *(vm.stackTop-1); \
+#define BINARY_OP(value_type, op) \
+    do {              \
+    if(!IS_NUMBER(peek(0)) || !IS_NUMBER(peek(1))){ \
+        runtimeError("Operands must be numbers.");  \
+        return INTERPRET_RUNTIME_ERROR;\
+    }                 \
+        double result = AS_NUMBER(*(vm.stackTop-2)) op AS_NUMBER(*(vm.stackTop-1)); \
+        (vm.stackTop-2)->as.value_type = result;       \
         vm.stackTop--;\
     }while(false) \
 
@@ -78,14 +106,37 @@ static InterpretResult run(){
             }
 
             case OP_NEGATE: {
-                *(vm.stackTop-1) *= -1;  //inplace
+                if(!IS_NUMBER(peek(0))){
+                    runtimeError("Operand must be a number.");
+                    return INTERPRET_RUNTIME_ERROR;
+                }
+                double* addr = &AS_NUMBER(*(vm.stackTop-1));
+                *addr *= -1;  //inplace
                 break;
             }
 
-            case OP_ADD: BINARY_OP(+); break;
-            case OP_SUBTRACT: BINARY_OP(-); break;
-            case OP_MULTIPLY: BINARY_OP(*); break;
-            case OP_DIVIDE: BINARY_OP(/); break;
+            case OP_NIL: push(NIL_VAL); break;
+            case OP_TRUE: push(BOOL_VAL(true)); break;
+            case OP_FALSE: push(BOOL_VAL(false)); break;
+
+
+            case OP_NOT:
+                uncheckedPush(BOOL_VAL(isFalsey(pop()))); break;
+                // stack will be pop'ed, no need to check for free space
+
+            case OP_EQUAL: {
+                Value b = pop();
+                Value a = pop();
+                uncheckedPush(BOOL_VAL(valuesEqual(a, b)));
+                break;
+            }
+            case OP_GREATER: BINARY_OP(boolean, >); break;
+            case OP_LESS: BINARY_OP(boolean, <); break;
+
+            case OP_ADD:        BINARY_OP(number, +); break;
+            case OP_SUBTRACT:   BINARY_OP(number, -); break;
+            case OP_MULTIPLY:   BINARY_OP(number, *); break;
+            case OP_DIVIDE:     BINARY_OP(number, /); break;
 
             case OP_RETURN: {
                 printValue(pop());
