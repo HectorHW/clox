@@ -60,14 +60,13 @@ static InterpretResult run(){
 #define READ_CONSTANT_LONG(constant_variable) \
 (constant_variable = vm.chunk->constants.values[*vm.ip + (*(vm.ip+1)<<8) + (*(vm.ip+2)<<16)], vm.ip+=3)
 
-#define BINARY_OP(value_type, op) \
+#define BINARY_OP(VAL_MACRO, op) \
     do {              \
     if(!IS_NUMBER(peek(0)) || !IS_NUMBER(peek(1))){ \
         runtimeError("Operands must be numbers.");  \
         return INTERPRET_RUNTIME_ERROR;\
     }                 \
-        double result = AS_NUMBER(*(vm.stackTop-2)) op AS_NUMBER(*(vm.stackTop-1)); \
-        (vm.stackTop-2)->as.value_type = result;       \
+        *(vm.stackTop-2) = VAL_MACRO(AS_NUMBER(*(vm.stackTop-2)) op AS_NUMBER(*(vm.stackTop-1)));       \
         vm.stackTop--;\
     }while(false) \
 
@@ -130,13 +129,13 @@ static InterpretResult run(){
                 uncheckedPush(BOOL_VAL(valuesEqual(a, b)));
                 break;
             }
-            case OP_GREATER: BINARY_OP(boolean, >); break;
-            case OP_LESS: BINARY_OP(boolean, <); break;
+            case OP_GREATER: BINARY_OP(BOOL_VAL, >); break;
+            case OP_LESS: BINARY_OP(BOOL_VAL, <); break;
 
-            case OP_ADD:        BINARY_OP(number, +); break;
-            case OP_SUBTRACT:   BINARY_OP(number, -); break;
-            case OP_MULTIPLY:   BINARY_OP(number, *); break;
-            case OP_DIVIDE:     BINARY_OP(number, /); break;
+            case OP_ADD:        BINARY_OP(NUMBER_VAL, +); break;
+            case OP_SUBTRACT:   BINARY_OP(NUMBER_VAL, -); break;
+            case OP_MULTIPLY:   BINARY_OP(NUMBER_VAL, *); break;
+            case OP_DIVIDE:     BINARY_OP(NUMBER_VAL, /); break;
 
             case OP_RETURN: {
                 printValue(pop());
