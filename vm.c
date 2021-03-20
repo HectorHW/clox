@@ -3,8 +3,12 @@
 //
 
 #include <stdio.h>
+#include <string.h>
+#include <stdarg.h>
 #include "common.h"
+#include "object.h"
 #include "vm.h"
+#include "compiler.h"
 #include "debug.h"
 #include "memory.h"
 #include "stdlib.h"
@@ -21,13 +25,56 @@ static void freeStack(){
     free(vm.stack);
 }
 
+static void resetStack() {
+    //resets stack but does not frees it
+    vm.stackTop = vm.stack;
+
+}
+
 
 void initVM(){
 initStack();
+vm.objects = NULL; //init list of objects
 }
 
 void freeVM(){
+    freeObjects();
     freeStack();
+}
+
+static Value peek(int distance){
+    return vm.stackTop[-1-distance];
+}
+
+static bool isFalsey(Value value){
+    return IS_NIL(value) || (IS_BOOL(value) && !AS_BOOL(value));
+}
+
+static void concatenate() {
+    ObjString* b = AS_STRING(pop());
+    ObjString* a = AS_STRING(pop());
+
+    int length = a->length + b->length;
+    char* chars = ALLOCATE(char, length+1);
+    memcpy(chars, a->chars, a->length);
+    memcpy(chars+a->length, b->chars, b->length);
+    chars[length] = '\0'; //terminator for c functions
+    ObjString* result = takeString(chars, length);
+    uncheckedPush(OBJ_VAL(result));
+}
+
+static void runtimeError(const char* format, ...){
+    va_list args;
+    va_start(args, format);
+    vfprintf(stderr, format, args);
+    va_end(args);
+    fputs("\n", stderr);
+
+    size_t intsruction = vm.ip - vm.chunk->code - 1;
+    int line = getLine(&vm.chunk->lines, intsruction);
+    fprintf(stderr, "[line %d] is script\n", line);
+    resetStack(); //stack should be freed only once - on vm.free
+
 }
 
 static InterpretResult run(){
@@ -36,9 +83,13 @@ static InterpretResult run(){
 #define READ_CONSTANT_LONG(constant_variable) \
 (constant_variable = vm.chunk->constants.values[*vm.ip + (*(vm.ip+1)<<8) + (*(vm.ip+2)<<16)], vm.ip+=3)
 
-#define BINARY_OP(op) \
-    do {\
-        *(vm.stackTop-2) = *(vm.stackTop-2) op *(vm.stackTop-1); \
+#define BINARY_OP(VAL_MACRO, op) \
+    do {              \
+    if(!IS_NUMBER(peek(0)) || !IS_NUMBER(peek(1))){ \
+        runtimeError("Operands must be numbers.");  \
+        return INTERPRET_RUNTIME_ERROR;\
+    }                 \
+        *(vm.stackTop-2) = VAL_MACRO(AS_NUMBER(*(vm.stackTop-2)) op AS_NUMBER(*(vm.stackTop-1)));       \
         vm.stackTop--;\
     }while(false) \
 
@@ -77,14 +128,51 @@ static InterpretResult run(){
             }
 
             case OP_NEGATE: {
-                *(vm.stackTop-1) *= -1;  //inplace
+                if(!IS_NUMBER(peek(0))){
+                    runtimeError("Operand must be a number.");
+                    return INTERPRET_RUNTIME_ERROR;
+                }
+                double* addr = &AS_NUMBER(*(vm.stackTop-1));
+                *addr *= -1;  //inplace
                 break;
             }
 
-            case OP_ADD: BINARY_OP(+); break;
-            case OP_SUBTRACT: BINARY_OP(-); break;
-            case OP_MULTIPLY: BINARY_OP(*); break;
-            case OP_DIVIDE: BINARY_OP(/); break;
+            case OP_NIL: push(NIL_VAL); break;
+            case OP_TRUE: push(BOOL_VAL(true)); break;
+            case OP_FALSE: push(BOOL_VAL(false)); break;
+
+
+            case OP_NOT:
+                uncheckedPush(BOOL_VAL(isFalsey(pop()))); break;
+                // stack will be pop'ed, no need to check for free space
+
+            case OP_EQUAL: {
+                Value b = pop();
+                Value a = pop();
+                uncheckedPush(BOOL_VAL(valuesEqual(a, b)));
+                break;
+            }
+            case OP_GREATER: BINARY_OP(BOOL_VAL, >); break;
+            case OP_LESS: BINARY_OP(BOOL_VAL, <); break;
+
+            case OP_ADD: {
+                if(IS_STRING(peek(0)) && IS_STRING(peek(1))) {
+                    concatenate();
+                }else if(IS_NUMBER(peek(0)) && IS_NUMBER(peek(1))){
+                    //inplace addition for numbers
+                    ((vm.stackTop-2)->as.number) = (AS_NUMBER(*(vm.stackTop-2)) + AS_NUMBER(*(vm.stackTop-1)));
+                    vm.stackTop--;
+                }else {
+                    runtimeError("Operands must be two numbers or strings.");
+                    return INTERPRET_RUNTIME_ERROR;
+                }
+                break;
+            }
+
+
+            case OP_SUBTRACT:   BINARY_OP(NUMBER_VAL, -); break;
+            case OP_MULTIPLY:   BINARY_OP(NUMBER_VAL, *); break;
+            case OP_DIVIDE:     BINARY_OP(NUMBER_VAL, /); break;
 
             case OP_RETURN: {
                 printValue(pop());
@@ -99,10 +187,22 @@ static InterpretResult run(){
 #undef BINARY_OP
 }
 
-InterpretResult interpret(Chunk *chunk) {
-    vm.chunk = chunk;
+InterpretResult interpret(const char* source) {
+    Chunk chunk;
+    initChunk(&chunk);
+    if(compile(source, &chunk)!=0){
+        freeChunk(&chunk);
+        return INTERPRET_COMPILE_ERROR;
+    }
+
+    vm.chunk = &chunk;
     vm.ip = vm.chunk->code;
-    return run();
+
+    InterpretResult result = run();
+
+    freeChunk(&chunk);
+
+    return result;
 }
 
 void push(Value value) {
