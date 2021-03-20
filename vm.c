@@ -3,8 +3,10 @@
 //
 
 #include <stdio.h>
+#include <string.h>
 #include <stdarg.h>
 #include "common.h"
+#include "object.h"
 #include "vm.h"
 #include "compiler.h"
 #include "debug.h"
@@ -26,9 +28,11 @@ static void freeStack(){
 
 void initVM(){
 initStack();
+vm.objects = NULL; //init list of objects
 }
 
 void freeVM(){
+    freeObjects();
     freeStack();
 }
 
@@ -38,6 +42,19 @@ static Value peek(int distance){
 
 static bool isFalsey(Value value){
     return IS_NIL(value) || (IS_BOOL(value) && !AS_BOOL(value));
+}
+
+static void concatenate() {
+    ObjString* b = AS_STRING(pop());
+    ObjString* a = AS_STRING(pop());
+
+    int length = a->length + b->length;
+    char* chars = ALLOCATE(char, length+1);
+    memcpy(chars, a->chars, a->length);
+    memcpy(chars+a->length, b->chars, b->length);
+    chars[length] = '\0'; //terminator for c functions
+    ObjString* result = takeString(chars, length);
+    uncheckedPush(OBJ_VAL(result));
 }
 
 static void runtimeError(const char* format, ...){
@@ -132,7 +149,21 @@ static InterpretResult run(){
             case OP_GREATER: BINARY_OP(BOOL_VAL, >); break;
             case OP_LESS: BINARY_OP(BOOL_VAL, <); break;
 
-            case OP_ADD:        BINARY_OP(NUMBER_VAL, +); break;
+            case OP_ADD: {
+                if(IS_STRING(peek(0)) && IS_STRING(peek(1))) {
+                    concatenate();
+                }else if(IS_NUMBER(peek(0)) && IS_NUMBER(peek(1))){
+                    //inplace addition for numbers
+                    ((vm.stackTop-2)->as.number) = (AS_NUMBER(*(vm.stackTop-2)) + AS_NUMBER(*(vm.stackTop-1)));
+                    vm.stackTop--;
+                }else {
+                    runtimeError("Operands must be two numbers or strings.");
+                    return INTERPRET_RUNTIME_ERROR;
+                }
+                break;
+            }
+
+
             case OP_SUBTRACT:   BINARY_OP(NUMBER_VAL, -); break;
             case OP_MULTIPLY:   BINARY_OP(NUMBER_VAL, *); break;
             case OP_DIVIDE:     BINARY_OP(NUMBER_VAL, /); break;

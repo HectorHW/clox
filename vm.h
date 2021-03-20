@@ -14,6 +14,7 @@ typedef struct {
     uint8_t* ip; //instruction pointer, points to instruction that will be executed next
     Value* stack;
     Value* stackTop;
+    Obj* objects; //list of all allocated objects
     int stack_size;
 } VM;
 
@@ -22,6 +23,8 @@ typedef enum {
     INTERPRET_COMPILE_ERROR,
     INTERPRET_RUNTIME_ERROR
 } InterpretResult;
+
+extern VM vm;
 
 void initVM();
 void freeVM();
