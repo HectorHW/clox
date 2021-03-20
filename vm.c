@@ -25,6 +25,12 @@ static void freeStack(){
     free(vm.stack);
 }
 
+static void resetStack() {
+    //resets stack but does not frees it
+    vm.stackTop = vm.stack;
+
+}
+
 
 void initVM(){
 initStack();
@@ -67,7 +73,7 @@ static void runtimeError(const char* format, ...){
     size_t intsruction = vm.ip - vm.chunk->code - 1;
     int line = getLine(&vm.chunk->lines, intsruction);
     fprintf(stderr, "[line %d] is script\n", line);
-    freeStack();
+    resetStack(); //stack should be freed only once - on vm.free
 
 }
 
