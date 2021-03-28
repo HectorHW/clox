@@ -6,6 +6,7 @@
 #define CLOX_VM_H
 
 #include "chunk.h"
+#include "table.h"
 #include "value.h"
 
 
@@ -16,6 +17,8 @@ typedef struct {
     Value* stackTop;
     Obj* objects; //list of all allocated objects
     int stack_size;
+
+    Table strings;
 } VM;
 
 typedef enum {

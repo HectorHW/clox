@@ -35,9 +35,11 @@ static void resetStack() {
 void initVM(){
 initStack();
 vm.objects = NULL; //init list of objects
+initTable(&vm.strings);
 }
 
 void freeVM(){
+    freeTable(&vm.strings);
     freeObjects();
     freeStack();
 }
