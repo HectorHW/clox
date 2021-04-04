@@ -18,6 +18,7 @@ typedef struct {
     Obj* objects; //list of all allocated objects
     int stack_size;
 
+    Table globals;
     Table strings;
 } VM;
 
