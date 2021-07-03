@@ -127,6 +127,11 @@ static void emitBytes3(uint8_t byte1, uint8_t byte2, uint8_t byte3){
     emitByte(byte1); emitByte(byte2); emitByte(byte3);
 }
 
+static int emitJump(uint8_t instruction){
+    emitBytes3(instruction, 0xff, 0xff);
+    return currentChunk()->count - 2; //address of 'instruction'
+}
+
 static void emitReturn(){
     emitByte(OP_RETURN);
 }
@@ -151,6 +156,29 @@ static void emitConstant(Value value){
                 );
 
     }
+}
+
+static void emitLoop(int loopStart){
+    emitByte(OP_LOOP);
+    int offset = currentChunk()->count - loopStart + 2;
+    if(offset>UINT16_MAX) error("Loop body is too large.");
+
+    emitBytes2(
+            (offset>>8)&0xff, offset&0xff
+            );
+
+}
+
+static void patchJump(int offset){
+    //-2 to adjust for the bytecode for the jump offset itself.
+    int jump = currentChunk() ->count - offset - 2;
+
+    if(jump>UINT16_MAX){
+        error("Too much code to jump over.");
+    }
+
+    currentChunk()->code[offset] = (jump>>8) & 0xff;
+    currentChunk()->code[offset+1] = jump & 0xff;
 }
 
 static void initCompiler(Compiler* compiler){
@@ -237,6 +265,28 @@ static void defineVariable(uint8_t global){
         return;
     }
     emitBytes2(OP_DEFINE_GLOBAL, global);
+}
+
+static void and_(bool canAssign){
+    //lhs is already evaluated
+    int endJump = emitJump(OP_JUMP_IF_FALSE); //if it is false, whole 'and' expr is false
+
+    emitByte(OP_POP); //if it is not, remove it from stack
+    parsePrecedence(PREC_AND); // and evaluate rhs
+
+    patchJump(endJump);
+}
+
+static void or_(bool canAssign){
+    //lhs is already evaluated
+    int elseJump = emitJump(OP_JUMP_IF_FALSE); // if value on stack is false, evaluate rhs
+    int endJump = emitJump(OP_JUMP); //else skip to end
+
+    patchJump(elseJump);
+    emitByte(OP_POP); // pop false from the stack
+    parsePrecedence(PREC_OR);
+    patchJump(endJump);
+
 }
 
 static void endCompiler(){
@@ -379,7 +429,7 @@ ParseRule rules[] = {
         [TOKEN_IDENTIFIER]      = {variable, NULL, PREC_NONE},
         [TOKEN_STRING]          = {string, NULL, PREC_NONE},
         [TOKEN_NUMBER]          = {number, NULL, PREC_NONE},
-        [TOKEN_AND]             = {NULL, NULL, PREC_NONE},
+        [TOKEN_AND]             = {NULL, and_, PREC_AND},
         [TOKEN_CLASS]           = {NULL, NULL, PREC_NONE},
         [TOKEN_ELSE]            = {NULL, NULL, PREC_NONE},
         [TOKEN_FALSE]           = {literal, NULL, PREC_NONE},
@@ -387,7 +437,7 @@ ParseRule rules[] = {
         [TOKEN_DEF]             = {NULL, NULL, PREC_NONE},
         [TOKEN_IF]              = {NULL, NULL, PREC_NONE},
         [TOKEN_NIL]             = {literal, NULL, PREC_NONE},
-        [TOKEN_OR]              = {NULL, NULL, PREC_NONE},
+        [TOKEN_OR]              = {NULL, or_, PREC_OR},
         [TOKEN_PRINT]           = {NULL, NULL, PREC_NONE},
         [TOKEN_RETURN]          = {NULL, NULL, PREC_NONE},
         [TOKEN_SUPER]           = {NULL, NULL, PREC_NONE},
@@ -458,10 +508,94 @@ static void expressionStatement(){
     emitByte(OP_POP);
 }
 
+static void ifStatement(){
+    consume(TOKEN_LEFT_PAREN, "Expected '(' after if.");
+    expression(); // if (expr)
+    consume(TOKEN_RIGHT_PAREN, "Expected ')' after condition.");
+    int thenJump = emitJump(OP_JUMP_IF_FALSE); // skip 'then' if condition is falsey
+    emitByte(OP_POP); // JUMP_IF_FALSE does not modify stack
+    statement(); // then branch
+
+    int elseJump = emitJump(OP_JUMP); //exit then branch
+
+    patchJump(thenJump); // set target for jump
+
+    emitByte(OP_POP);
+    if(match(TOKEN_ELSE)) statement(); // else branch
+    patchJump(elseJump);
+}
+
+static void forStatement() {
+    beginScope();
+    consume(TOKEN_LEFT_PAREN, "Expected '(' after 'for'.");
+
+    // compile initializer, execute it once before loop
+    if(match(TOKEN_SEMICOLON)){
+        // no initializer.
+    }else if(match(TOKEN_VAR)){
+        varDeclaration();
+    }else{
+        expressionStatement();
+    }
+
+    int loopStart = currentChunk()->count;
+
+    int exitJump = -1;
+    if(!match(TOKEN_SEMICOLON)){
+        expression();
+        consume(TOKEN_SEMICOLON, "Expected ';' after loop condition.");
+
+        //Jump out of the loop if the condition is false
+        exitJump = emitJump(OP_JUMP_IF_FALSE);
+        emitByte(OP_POP);
+    }
+
+    if(!match(TOKEN_RIGHT_PAREN)){
+        int bodyJump = emitJump(OP_JUMP); //jump to loop body
+        int incrementStart = currentChunk()->count;
+
+        expression(); // increment
+        emitByte(OP_POP);
+        consume(TOKEN_RIGHT_PAREN, "Expected ')' after for clauses.");
+
+        emitLoop(loopStart);
+        loopStart = incrementStart;
+        patchJump(bodyJump);
+    }
+
+    statement(); // for loop body
+    emitLoop(loopStart); // jump back
+
+    if(exitJump!=-1){
+        patchJump(exitJump);
+        emitByte(OP_POP); //Condition
+    }
+
+    endScope();
+}
+
 static void printStatement(){
     expression();
     consume(TOKEN_SEMICOLON, "Expected ';' after value.");
     emitByte(OP_PRINT);
+}
+
+static void whileStatement() {
+    int loopStart = currentChunk()->count;
+    consume(TOKEN_LEFT_PAREN, "Expected '(' after 'while'.");
+    expression(); // condition
+    consume(TOKEN_RIGHT_PAREN, "Expected ')' after condition.");
+
+    int exitJump = emitJump(OP_JUMP_IF_FALSE); //jump if while condition is false
+    emitByte(OP_POP); // pop condition result
+
+    statement(); // body
+    emitLoop(loopStart); // jump back before the condition
+
+    patchJump(exitJump);
+    emitByte(OP_POP);
+
+
 }
 
 static void synchronize(){
@@ -505,10 +639,16 @@ static void declaration(){
 static void statement(){
     if(match(TOKEN_PRINT)){
         printStatement();
+    } else if (match(TOKEN_IF)){
+        ifStatement();
+    } else if (match(TOKEN_WHILE)) {
+        whileStatement();
+    } else if (match(TOKEN_FOR)){
+        forStatement();
     }else if (match(TOKEN_LEFT_BRACE)) {
-     beginScope();
-     block();
-     endScope();
+        beginScope();
+        block();
+        endScope();
     }else{
         expressionStatement();
     }
