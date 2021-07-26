@@ -8,12 +8,23 @@
 #include "chunk.h"
 #include "table.h"
 #include "value.h"
+#include "object.h"
+
+#define FRAMES_MAX 64
+#define STACK_MAX (FRAMES_MAX*UINT8_COUNT)
+
+typedef struct {
+    ObjFunction* function;
+    uint8_t* ip; // function stores its own ip
+    Value* slots;
+} CallFrame;
 
 
 typedef struct {
-    Chunk* chunk;
-    uint8_t* ip; //instruction pointer, points to instruction that will be executed next
-    Value* stack;
+    CallFrame frames[FRAMES_MAX];
+    int frameCount;
+
+    Value stack[STACK_MAX];
     Value* stackTop;
     Obj* objects; //list of all allocated objects
     int stack_size;

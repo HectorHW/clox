@@ -38,6 +38,7 @@ typedef enum {
     OP_SET_LOCAL,
 
     OP_RETURN,
+    OP_CALL
 } OpCode;
 
 typedef struct {
