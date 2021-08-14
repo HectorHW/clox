@@ -32,6 +32,13 @@ typedef struct {
 
     Table globals;
     Table strings;
+
+    int grayCount;
+    int grayCapacity;
+    Obj** grayStack;
+
+    size_t bytesAllocated;
+    size_t nextGC;
 } VM;
 
 typedef enum {

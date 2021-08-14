@@ -32,6 +32,7 @@ typedef enum {
 
 struct Obj {
     ObjType type;
+    bool isMarked;
     struct Obj* next; //list of objects for later freeing
 };
 
